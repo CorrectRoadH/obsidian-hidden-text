@@ -1,0 +1,9 @@
+{
+	"id": "obsidian-hidden-text",
+	"name": "Hidden Text",
+	"version": "1.0.0",
+	"minAppVersion": "1.0.0",
+	"description": "Hide paragraphs containing blacklisted words from editor and reading views.",
+	"author": "CorrectRoadH",
+	"isDesktopOnly": false
+}
