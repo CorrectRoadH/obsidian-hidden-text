@@ -36,8 +36,38 @@ export class HiddenTextSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Blacklist words")
-			.setDesc("One word per line. Paragraphs containing any of these words will be hidden.")
+			.setName("Blacklist file")
+			.setDesc(
+				"Blacklist words are stored in .hidden-text-blacklist.md at the vault root. " +
+				"Edit that file directly (one word per line). Changes sync across devices."
+			);
+
+		new Setting(containerEl)
+			.setName("Edit blacklist")
+			.setDesc("Open the blacklist file for editing.")
+			.addButton((btn) =>
+				btn.setButtonText("Open").onClick(async () => {
+					const file = this.app.vault.getAbstractFileByPath(
+						".hidden-text-blacklist.md"
+					);
+					if (file) {
+						await this.app.workspace.openLinkText(file.path, "", false);
+					} else {
+						// Create the file first
+						await this.plugin.saveSettings();
+						const created = this.app.vault.getAbstractFileByPath(
+							".hidden-text-blacklist.md"
+						);
+						if (created) {
+							await this.app.workspace.openLinkText(created.path, "", false);
+						}
+					}
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Quick edit")
+			.setDesc("Or edit here directly. One word per line.")
 			.addTextArea((text) => {
 				text.setPlaceholder("secret\nconfidential\nprivate")
 					.setValue(this.plugin.settings.blacklistWords.join("\n"))

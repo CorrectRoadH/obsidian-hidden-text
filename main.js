@@ -44,7 +44,28 @@ var HiddenTextSettingTab = class extends import_obsidian.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian.Setting(containerEl).setName("Blacklist words").setDesc("One word per line. Paragraphs containing any of these words will be hidden.").addTextArea((text) => {
+    new import_obsidian.Setting(containerEl).setName("Blacklist file").setDesc(
+      "Blacklist words are stored in .hidden-text-blacklist.md at the vault root. Edit that file directly (one word per line). Changes sync across devices."
+    );
+    new import_obsidian.Setting(containerEl).setName("Edit blacklist").setDesc("Open the blacklist file for editing.").addButton(
+      (btn) => btn.setButtonText("Open").onClick(async () => {
+        const file = this.app.vault.getAbstractFileByPath(
+          ".hidden-text-blacklist.md"
+        );
+        if (file) {
+          await this.app.workspace.openLinkText(file.path, "", false);
+        } else {
+          await this.plugin.saveSettings();
+          const created = this.app.vault.getAbstractFileByPath(
+            ".hidden-text-blacklist.md"
+          );
+          if (created) {
+            await this.app.workspace.openLinkText(created.path, "", false);
+          }
+        }
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Quick edit").setDesc("Or edit here directly. One word per line.").addTextArea((text) => {
       text.setPlaceholder("secret\nconfidential\nprivate").setValue(this.plugin.settings.blacklistWords.join("\n")).onChange(async (value) => {
         this.plugin.settings.blacklistWords = value.split("\n").map((w) => w.trim()).filter((w) => w.length > 0);
         await this.plugin.saveSettings();
@@ -152,6 +173,7 @@ function createPostProcessor(getWords, isEnabled) {
 }
 
 // src/main.ts
+var CONFIG_FILE = ".hidden-text-blacklist.md";
 var HiddenTextPlugin = class extends import_obsidian2.Plugin {
   async onload() {
     await this.loadSettings();
@@ -174,19 +196,35 @@ var HiddenTextPlugin = class extends import_obsidian2.Plugin {
         );
       }
     });
+    this.registerEvent(
+      this.app.vault.on("modify", async (file) => {
+        if (file.path === CONFIG_FILE) {
+          await this.loadSettings();
+          this.refreshEditors();
+        }
+      })
+    );
     this.app.workspace.onLayoutReady(() => {
       this.refreshEditors();
     });
   }
   async loadSettings() {
-    this.settings = Object.assign(
-      {},
-      DEFAULT_SETTINGS,
-      await this.loadData()
-    );
+    const file = this.app.vault.getAbstractFileByPath(CONFIG_FILE);
+    if (file instanceof import_obsidian2.TFile) {
+      const content = await this.app.vault.read(file);
+      this.settings = parseConfigFile(content);
+    } else {
+      this.settings = Object.assign({}, DEFAULT_SETTINGS);
+    }
   }
   async saveSettings() {
-    await this.saveData(this.settings);
+    const content = serializeConfigFile(this.settings);
+    const file = this.app.vault.getAbstractFileByPath(CONFIG_FILE);
+    if (file instanceof import_obsidian2.TFile) {
+      await this.app.vault.modify(file, content);
+    } else {
+      await this.app.vault.create(CONFIG_FILE, content);
+    }
     this.refreshEditors();
   }
   refreshEditors() {
@@ -202,3 +240,26 @@ var HiddenTextPlugin = class extends import_obsidian2.Plugin {
     });
   }
 };
+function parseConfigFile(content) {
+  let enabled = DEFAULT_SETTINGS.enabled;
+  let body = content;
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  if (fmMatch) {
+    const fm = fmMatch[1];
+    body = fmMatch[2];
+    const enabledMatch = fm.match(/^enabled:\s*(true|false)\s*$/m);
+    if (enabledMatch) {
+      enabled = enabledMatch[1] === "true";
+    }
+  }
+  const blacklistWords = body.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+  return { enabled, blacklistWords };
+}
+function serializeConfigFile(settings) {
+  const fm = `---
+enabled: ${settings.enabled}
+---
+`;
+  const body = settings.blacklistWords.join("\n");
+  return fm + body + "\n";
+}

@@ -1,4 +1,4 @@
-import { Notice, Plugin } from "obsidian";
+import { Notice, Plugin, TFile } from "obsidian";
 import {
 	HiddenTextSettingTab,
 	DEFAULT_SETTINGS,
@@ -6,6 +6,8 @@ import {
 } from "./settings";
 import { hiddenTextField, updateBlacklistEffect } from "./editor-extension";
 import { createPostProcessor } from "./post-processor";
+
+const CONFIG_FILE = ".hidden-text-blacklist.md";
 
 export default class HiddenTextPlugin extends Plugin {
 	settings: HiddenTextSettings;
@@ -15,10 +17,8 @@ export default class HiddenTextPlugin extends Plugin {
 
 		this.addSettingTab(new HiddenTextSettingTab(this.app, this));
 
-		// Editor extension for live preview / source mode
 		this.registerEditorExtension([hiddenTextField]);
 
-		// Reading view post processor
 		this.registerMarkdownPostProcessor(
 			createPostProcessor(
 				() => this.settings.blacklistWords,
@@ -26,7 +26,6 @@ export default class HiddenTextPlugin extends Plugin {
 			)
 		);
 
-		// Command to toggle hidden text on/off
 		this.addCommand({
 			id: "toggle-hidden-text",
 			name: "Toggle hidden text",
@@ -39,22 +38,39 @@ export default class HiddenTextPlugin extends Plugin {
 			},
 		});
 
-		// Initial dispatch after editor is ready
+		// Watch for config file changes (e.g. synced from another device)
+		this.registerEvent(
+			this.app.vault.on("modify", async (file) => {
+				if (file.path === CONFIG_FILE) {
+					await this.loadSettings();
+					this.refreshEditors();
+				}
+			})
+		);
+
 		this.app.workspace.onLayoutReady(() => {
 			this.refreshEditors();
 		});
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			await this.loadData()
-		);
+		const file = this.app.vault.getAbstractFileByPath(CONFIG_FILE);
+		if (file instanceof TFile) {
+			const content = await this.app.vault.read(file);
+			this.settings = parseConfigFile(content);
+		} else {
+			this.settings = Object.assign({}, DEFAULT_SETTINGS);
+		}
 	}
 
 	async saveSettings() {
-		await this.saveData(this.settings);
+		const content = serializeConfigFile(this.settings);
+		const file = this.app.vault.getAbstractFileByPath(CONFIG_FILE);
+		if (file instanceof TFile) {
+			await this.app.vault.modify(file, content);
+		} else {
+			await this.app.vault.create(CONFIG_FILE, content);
+		}
 		this.refreshEditors();
 	}
 
@@ -63,7 +79,6 @@ export default class HiddenTextPlugin extends Plugin {
 			? this.settings.blacklistWords
 			: [];
 
-		// Dispatch the blacklist update to all editor instances
 		this.app.workspace.iterateAllLeaves((leaf) => {
 			const view = (leaf.view as any)?.editor?.cm as
 				| import("@codemirror/view").EditorView
@@ -75,4 +90,33 @@ export default class HiddenTextPlugin extends Plugin {
 			}
 		});
 	}
+}
+
+function parseConfigFile(content: string): HiddenTextSettings {
+	let enabled = DEFAULT_SETTINGS.enabled;
+	let body = content;
+
+	// Parse frontmatter
+	const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+	if (fmMatch) {
+		const fm = fmMatch[1];
+		body = fmMatch[2];
+		const enabledMatch = fm.match(/^enabled:\s*(true|false)\s*$/m);
+		if (enabledMatch) {
+			enabled = enabledMatch[1] === "true";
+		}
+	}
+
+	const blacklistWords = body
+		.split("\n")
+		.map((l) => l.trim())
+		.filter((l) => l.length > 0);
+
+	return { enabled, blacklistWords };
+}
+
+function serializeConfigFile(settings: HiddenTextSettings): string {
+	const fm = `---\nenabled: ${settings.enabled}\n---\n`;
+	const body = settings.blacklistWords.join("\n");
+	return fm + body + "\n";
 }
