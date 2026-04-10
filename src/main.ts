@@ -1,4 +1,4 @@
-import { Notice, Plugin, TFile } from "obsidian";
+import { Notice, Plugin } from "obsidian";
 import {
 	HiddenTextSettingTab,
 	DEFAULT_SETTINGS,
@@ -6,8 +6,6 @@ import {
 } from "./settings";
 import { hiddenTextField, updateBlacklistEffect } from "./editor-extension";
 import { createPostProcessor } from "./post-processor";
-
-const CONFIG_FILE = ".hidden-text-blacklist.md";
 
 export default class HiddenTextPlugin extends Plugin {
 	settings: HiddenTextSettings;
@@ -38,39 +36,27 @@ export default class HiddenTextPlugin extends Plugin {
 			},
 		});
 
-		// Watch for config file changes (e.g. synced from another device)
-		this.registerEvent(
-			this.app.vault.on("modify", async (file) => {
-				if (file.path === CONFIG_FILE) {
-					await this.loadSettings();
-					this.refreshEditors();
-				}
-			})
-		);
-
 		this.app.workspace.onLayoutReady(() => {
 			this.refreshEditors();
 		});
 	}
 
+	// Called when data.json is modified externally (e.g. Obsidian Sync)
+	async onExternalSettingsChange() {
+		await this.loadSettings();
+		this.refreshEditors();
+	}
+
 	async loadSettings() {
-		const file = this.app.vault.getAbstractFileByPath(CONFIG_FILE);
-		if (file instanceof TFile) {
-			const content = await this.app.vault.read(file);
-			this.settings = parseConfigFile(content);
-		} else {
-			this.settings = Object.assign({}, DEFAULT_SETTINGS);
-		}
+		this.settings = Object.assign(
+			{},
+			DEFAULT_SETTINGS,
+			await this.loadData()
+		);
 	}
 
 	async saveSettings() {
-		const content = serializeConfigFile(this.settings);
-		const file = this.app.vault.getAbstractFileByPath(CONFIG_FILE);
-		if (file instanceof TFile) {
-			await this.app.vault.modify(file, content);
-		} else {
-			await this.app.vault.create(CONFIG_FILE, content);
-		}
+		await this.saveData(this.settings);
 		this.refreshEditors();
 	}
 
@@ -90,33 +76,4 @@ export default class HiddenTextPlugin extends Plugin {
 			}
 		});
 	}
-}
-
-function parseConfigFile(content: string): HiddenTextSettings {
-	let enabled = DEFAULT_SETTINGS.enabled;
-	let body = content;
-
-	// Parse frontmatter
-	const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-	if (fmMatch) {
-		const fm = fmMatch[1];
-		body = fmMatch[2];
-		const enabledMatch = fm.match(/^enabled:\s*(true|false)\s*$/m);
-		if (enabledMatch) {
-			enabled = enabledMatch[1] === "true";
-		}
-	}
-
-	const blacklistWords = body
-		.split("\n")
-		.map((l) => l.trim())
-		.filter((l) => l.length > 0);
-
-	return { enabled, blacklistWords };
-}
-
-function serializeConfigFile(settings: HiddenTextSettings): string {
-	const fm = `---\nenabled: ${settings.enabled}\n---\n`;
-	const body = settings.blacklistWords.join("\n");
-	return fm + body + "\n";
 }
