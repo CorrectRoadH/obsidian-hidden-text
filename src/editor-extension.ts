@@ -39,6 +39,11 @@ export const hiddenTextField = StateField.define<DecorationSet>({
 
 let currentWords: string[] = [];
 
+function getIndent(text: string): number {
+	const match = text.match(/^(\s*)/);
+	return match ? match[1].length : 0;
+}
+
 function buildDecorations(
 	doc: { lines: number; line(n: number): { from: number; to: number; text: string } },
 	words: string[]
@@ -52,11 +57,31 @@ function buildDecorations(
 	const builder = new RangeSetBuilder<Decoration>();
 	const lowerWords = words.map((w) => w.toLowerCase());
 
-	for (let i = 1; i <= doc.lines; i++) {
+	let i = 1;
+	while (i <= doc.lines) {
 		const line = doc.line(i);
 		const lowerLine = line.text.toLowerCase();
+
 		if (lowerWords.some((w) => lowerLine.includes(w))) {
-			builder.add(line.from, line.to, Decoration.replace({}));
+			const matchIndent = getIndent(line.text);
+			let hideEnd = line.to;
+
+			// Also hide child lines (greater indentation)
+			let j = i + 1;
+			while (j <= doc.lines) {
+				const next = doc.line(j);
+				if (next.text.trim() === "" || getIndent(next.text) > matchIndent) {
+					hideEnd = next.to;
+					j++;
+				} else {
+					break;
+				}
+			}
+
+			builder.add(line.from, hideEnd, Decoration.replace({}));
+			i = j;
+		} else {
+			i++;
 		}
 	}
 

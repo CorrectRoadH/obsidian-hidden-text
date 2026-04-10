@@ -82,6 +82,10 @@ var hiddenTextField = import_state.StateField.define({
   }
 });
 var currentWords = [];
+function getIndent(text) {
+  const match = text.match(/^(\s*)/);
+  return match ? match[1].length : 0;
+}
 function buildDecorations(doc, words) {
   currentWords = words;
   if (words.length === 0) {
@@ -89,11 +93,27 @@ function buildDecorations(doc, words) {
   }
   const builder = new import_state.RangeSetBuilder();
   const lowerWords = words.map((w) => w.toLowerCase());
-  for (let i = 1; i <= doc.lines; i++) {
+  let i = 1;
+  while (i <= doc.lines) {
     const line = doc.line(i);
     const lowerLine = line.text.toLowerCase();
     if (lowerWords.some((w) => lowerLine.includes(w))) {
-      builder.add(line.from, line.to, import_view.Decoration.replace({}));
+      const matchIndent = getIndent(line.text);
+      let hideEnd = line.to;
+      let j = i + 1;
+      while (j <= doc.lines) {
+        const next = doc.line(j);
+        if (next.text.trim() === "" || getIndent(next.text) > matchIndent) {
+          hideEnd = next.to;
+          j++;
+        } else {
+          break;
+        }
+      }
+      builder.add(line.from, hideEnd, import_view.Decoration.replace({}));
+      i = j;
+    } else {
+      i++;
     }
   }
   return builder.finish();
@@ -125,17 +145,7 @@ function createPostProcessor(getWords, isEnabled) {
     for (const block of Array.from(blocks)) {
       const text = getDirectText(block).toLowerCase();
       if (lowerWords.some((w) => text.includes(w))) {
-        for (const child of Array.from(block.childNodes)) {
-          if (child.nodeType === Node.ELEMENT_NODE) {
-            const tag = child.tagName.toLowerCase();
-            if (tag === "ul" || tag === "ol") continue;
-          }
-          if (child.nodeType === Node.TEXT_NODE) {
-            child.textContent = "";
-          } else {
-            child.style.display = "none";
-          }
-        }
+        block.style.display = "none";
       }
     }
   };

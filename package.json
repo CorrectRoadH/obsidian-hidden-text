@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-hidden-text",
-	"version": "0.0.2",
+	"version": "0.0.3",
 	"description": "Hide paragraphs containing blacklisted words",
 	"main": "main.js",
 	"scripts": {
