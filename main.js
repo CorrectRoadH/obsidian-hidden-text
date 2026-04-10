@@ -70,7 +70,7 @@ var hiddenTextField = import_state.StateField.define({
       }
     }
     if (tr.docChanged) {
-      const words = getWordsFromDecorations(decorations, tr.state.doc);
+      const words = currentWords.length > 0 ? currentWords : null;
       if (words) {
         return buildDecorations(tr.state.doc, words);
       }
@@ -82,9 +82,6 @@ var hiddenTextField = import_state.StateField.define({
   }
 });
 var currentWords = [];
-function getWordsFromDecorations(_deco, _doc) {
-  return currentWords.length > 0 ? currentWords : null;
-}
 function buildDecorations(doc, words) {
   currentWords = words;
   if (words.length === 0) {
@@ -92,40 +89,32 @@ function buildDecorations(doc, words) {
   }
   const builder = new import_state.RangeSetBuilder();
   const lowerWords = words.map((w) => w.toLowerCase());
-  let lineNum = 1;
-  while (lineNum <= doc.lines) {
-    const line = doc.line(lineNum);
-    if (line.text.trim() === "") {
-      lineNum++;
-      continue;
+  for (let i = 1; i <= doc.lines; i++) {
+    const line = doc.line(i);
+    const lowerLine = line.text.toLowerCase();
+    if (lowerWords.some((w) => lowerLine.includes(w))) {
+      builder.add(line.from, line.to, import_view.Decoration.replace({}));
     }
-    const paraStart = line.from;
-    let paraEnd = line.to;
-    let paraText = line.text;
-    let endLineNum = lineNum;
-    while (endLineNum + 1 <= doc.lines) {
-      const nextLine = doc.line(endLineNum + 1);
-      if (nextLine.text.trim() === "") break;
-      paraText += "\n" + nextLine.text;
-      paraEnd = nextLine.to;
-      endLineNum++;
-    }
-    const lowerPara = paraText.toLowerCase();
-    const shouldHide = lowerWords.some((w) => lowerPara.includes(w));
-    if (shouldHide) {
-      builder.add(
-        paraStart,
-        paraEnd,
-        import_view.Decoration.replace({})
-      );
-    }
-    lineNum = endLineNum + 1;
   }
   return builder.finish();
 }
 
 // src/post-processor.ts
 var BLOCK_SELECTORS = "p, li, h1, h2, h3, h4, h5, h6, blockquote, tr";
+function getDirectText(el) {
+  let text = "";
+  for (const node of Array.from(el.childNodes)) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.textContent;
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const tag = node.tagName.toLowerCase();
+      if (tag !== "ul" && tag !== "ol" && tag !== "li" && tag !== "div") {
+        text += node.textContent;
+      }
+    }
+  }
+  return text;
+}
 function createPostProcessor(getWords, isEnabled) {
   return (element) => {
     if (!isEnabled()) return;
@@ -134,9 +123,19 @@ function createPostProcessor(getWords, isEnabled) {
     const lowerWords = words.map((w) => w.toLowerCase());
     const blocks = element.querySelectorAll(BLOCK_SELECTORS);
     for (const block of Array.from(blocks)) {
-      const text = (block.textContent || "").toLowerCase();
+      const text = getDirectText(block).toLowerCase();
       if (lowerWords.some((w) => text.includes(w))) {
-        block.style.display = "none";
+        for (const child of Array.from(block.childNodes)) {
+          if (child.nodeType === Node.ELEMENT_NODE) {
+            const tag = child.tagName.toLowerCase();
+            if (tag === "ul" || tag === "ol") continue;
+          }
+          if (child.nodeType === Node.TEXT_NODE) {
+            child.textContent = "";
+          } else {
+            child.style.display = "none";
+          }
+        }
       }
     }
   };
